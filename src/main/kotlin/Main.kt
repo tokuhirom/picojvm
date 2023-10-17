@@ -68,7 +68,6 @@ data class ConstantStringInfo(
 
 fun readConstantPool(dataInputStream: DataInputStream) : ConstantInfo {
     val tag = dataInputStream.readByte()
-    println("Read tag in constant pool: ${tag}")
     return when (tag.toInt()) {
         CONSTANT_Class -> {
             ConstantClassInfo(dataInputStream.readShort())
@@ -80,7 +79,6 @@ fun readConstantPool(dataInputStream: DataInputStream) : ConstantInfo {
             ConstantNameAndTypeInfo(dataInputStream.readShort(), dataInputStream.readShort())
         }
         CONSTANT_Utf8 -> {
-            // これは流石に、String にデコードしたほうが使いやすい
             val length = dataInputStream.readShort()
             val bytes = dataInputStream.readNBytes(length.toInt())
             ConstantUtf8Info(String(bytes, StandardCharsets.UTF_8))
@@ -105,7 +103,9 @@ data class ClassFile(
     val thisClass: Short,
     val superClass: Short,
     val interfaces: List<Short>,
-    val fields: List<FieldInfo>
+    val fields: List<FieldInfo>,
+    val methods: List<MethodInfo>,
+    val attributes: List<AttributeInfo>
 ) {
     fun dump() {
         println("this_class: #$thisClass // ${getName(thisClass)}")
@@ -217,10 +217,16 @@ fun readClassFile(fileName: String): ClassFile {
                 readFieldInfo(dataInputStream)
             }
 
-//            u2             methods_count;
-//            method_info    methods[methods_count];
-//            u2             attributes_count;
-//            attribute_info attributes[attributes_count];
+            val methodsCount = dataInputStream.readShort()
+            val methods = (0..<methodsCount).map {
+                readMethodInfo(dataInputStream)
+            }
+
+
+            val attributesCount = dataInputStream.readShort()
+            val attributes = (0..<attributesCount).map {
+                readAttributeInfo(dataInputStream)
+            }
 
             return ClassFile(
                 minorVersion, majorVersion,
@@ -228,9 +234,39 @@ fun readClassFile(fileName: String): ClassFile {
                 accessFlags, thisClass, superClass,
                 interfaces,
                 fields,
+                methods,
+                attributes,
             )
         }
     }
+}
+
+/**
+ * method_info {
+ *     u2             access_flags;
+ *     u2             name_index;
+ *     u2             descriptor_index;
+ *     u2             attributes_count;
+ *     attribute_info attributes[attributes_count];
+ * }
+ */
+data class MethodInfo(
+    val accessFlags: Short,
+    val nameIndex: Short,
+    val descriptorIndex: Short,
+    val attributesCount: Short,
+    val attributes: List<AttributeInfo>,
+)
+
+fun readMethodInfo(dataInputStream: DataInputStream): MethodInfo {
+    val accessFlags = dataInputStream.readShort()
+    val nameIndex = dataInputStream.readShort()
+    val descriptorIndex = dataInputStream.readShort()
+    val attributesCount = dataInputStream.readShort()
+    val attributes = (0..<attributesCount).map {
+        readAttributeInfo(dataInputStream)
+    }
+    return MethodInfo(accessFlags, nameIndex, descriptorIndex, attributesCount, attributes)
 }
 
 //attribute_info {
@@ -264,6 +300,13 @@ data class AttributeInfo(
     }
 }
 
+fun readAttributeInfo(dataInputStream: DataInputStream): AttributeInfo {
+    val attributeNameIndex = dataInputStream.readShort()
+    val attributeLength = dataInputStream.readInt()
+    val info = dataInputStream.readNBytes(attributeLength)
+    return AttributeInfo(attributeNameIndex, attributeLength, info)
+}
+
 //field_info {
 //    u2             access_flags;
 //    u2             name_index;
@@ -282,14 +325,11 @@ fun readFieldInfo(dataInputStream: DataInputStream): FieldInfo {
     val accessFlags = dataInputStream.readShort()
     val nameIndex = dataInputStream.readShort()
     val descriptorIndex = dataInputStream.readShort()
-    val attributeCount = dataInputStream.readShort()
-    val attributes = (0..<attributeCount).map {
-        val attributeNameIndex = dataInputStream.readShort()
-        val attributeLength = dataInputStream.readInt()
-        val info = dataInputStream.readNBytes(attributeLength)
-        AttributeInfo(attributeNameIndex, attributeLength, info)
+    val attributesCount = dataInputStream.readShort()
+    val attributes = (0..<attributesCount).map {
+        readAttributeInfo(dataInputStream)
     }
-    return FieldInfo(accessFlags, nameIndex, descriptorIndex, attributeCount, attributes)
+    return FieldInfo(accessFlags, nameIndex, descriptorIndex, attributesCount, attributes)
 }
 
 fun main(args: Array<String>) {
