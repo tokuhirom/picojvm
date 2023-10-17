@@ -105,7 +105,7 @@ data class ClassFile(
     val thisClass: Short,
     val superClass: Short,
     val interfaces: List<Short>,
-//    val fields: List<FieldInfo>
+    val fields: List<FieldInfo>
 ) {
     fun dump() {
         println("this_class: #$thisClass // ${getName(thisClass)}")
@@ -212,18 +212,10 @@ fun readClassFile(fileName: String): ClassFile {
                 dataInputStream.readShort()
             }
 
-//            val fieldsCount = dataInputStream.readShort()
-//            val fields = (0..<constantPoolCount).map {
-//                readFieldInfo(dataInputStream)
-//            }
-//            field_info {
-//                u2             access_flags;
-//                u2             name_index;
-//                u2             descriptor_index;
-//                u2             attributes_count;
-//                attribute_info attributes[attributes_count];
-//            }
-
+            val fieldsCount = dataInputStream.readShort()
+            val fields = (0..<fieldsCount).map {
+                readFieldInfo(dataInputStream)
+            }
 
 //            u2             methods_count;
 //            method_info    methods[methods_count];
@@ -235,7 +227,7 @@ fun readClassFile(fileName: String): ClassFile {
                 constantPool,
                 accessFlags, thisClass, superClass,
                 interfaces,
-//                fields,
+                fields,
             )
         }
     }
