@@ -1,12 +1,12 @@
 package picojvm.classfile
 
-import picojvm.AccessFlag
-import picojvm.AttributeInfo
-import picojvm.CodeAttribute
-import picojvm.FieldInfo
-import picojvm.LineNumberTableAttribute
-import picojvm.MethodInfo
-import picojvm.SourceFileAttribute
+import picojvm.classfile.attribute.CodeAttribute
+import picojvm.classfile.attribute.AttributeInfo
+import picojvm.classfile.attribute.LineNumberTableAttribute
+import picojvm.classfile.attribute.SourceFileAttribute
+import picojvm.classfile.attribute.readAttributeInfo
+import java.io.DataInputStream
+import java.io.FileInputStream
 
 data class ClassFile(
     val minorVersion: Int,
@@ -99,6 +99,70 @@ data class ClassFile(
             else -> {
                 println()
             }
+        }
+    }
+}
+
+// https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
+fun readClassFile(fileName: String): ClassFile {
+    // Multibyte data items are always stored in big-endian order であることに注意
+    // DataInputStream は big-endian by default.
+    FileInputStream(fileName).use { classFileInputStream ->
+        DataInputStream(classFileInputStream).use { dataInputStream ->
+            // Read magic number
+            val magicNumber = dataInputStream.readInt()
+            if (magicNumber != 0xCAFEBABE.toInt()) {
+                throw IllegalArgumentException("Invalid class file")
+            }
+            System.out.printf("Magic Number: %X\n", magicNumber)
+
+            // Read version number
+            val minorVersion = dataInputStream.readUnsignedShort()
+            val majorVersion = dataInputStream.readUnsignedShort()
+            println("Minor Version: $minorVersion, Major Version: $majorVersion")
+
+            // Read constant pool
+            val constantPoolCount = dataInputStream.readUnsignedShort()
+            println("Constant Pool Count: $constantPoolCount")
+            val constantPool = ConstantPool()
+            for (i in 1..<constantPoolCount) {
+                constantPool[i.toShort()] = readConstantPool(dataInputStream)
+            }
+
+            val accessFlags = dataInputStream.readShort()
+            val thisClass = dataInputStream.readShort()
+            val superClass = dataInputStream.readShort()
+
+            val interfacesCount = dataInputStream.readShort()
+            val interfaces = (0..<interfacesCount).map { i ->
+                dataInputStream.readShort()
+            }
+
+            val fieldsCount = dataInputStream.readShort()
+            val fields = (0..<fieldsCount).map {
+                readFieldInfo(constantPool, dataInputStream)
+            }
+
+            val methodsCount = dataInputStream.readShort()
+            val methods = (0..<methodsCount).map {
+                readMethodInfo(constantPool, dataInputStream)
+            }
+
+
+            val attributesCount = dataInputStream.readShort()
+            val attributes = (0..<attributesCount).map {
+                readAttributeInfo(constantPool, dataInputStream)
+            }
+
+            return ClassFile(
+                minorVersion, majorVersion,
+                constantPool,
+                accessFlags, thisClass, superClass,
+                interfaces,
+                fields,
+                methods,
+                attributes,
+            )
         }
     }
 }
