@@ -2,20 +2,28 @@ import java.io.DataInputStream
 import java.io.FileInputStream
 import java.nio.charset.StandardCharsets
 
-const val CONSTANT_Class=	7
-const val CONSTANT_Fieldref = 	9
-const val CONSTANT_Methodref = 	10
-const val CONSTANT_InterfaceMethodref = 	11
-const val CONSTANT_String = 	8
-const val CONSTANT_Integer = 	3
-const val CONSTANT_Float = 	4
-const val CONSTANT_Long = 	5
-const val CONSTANT_Double = 	6
-const val CONSTANT_NameAndType = 	12
-const val CONSTANT_Utf8 = 	1
-const val CONSTANT_MethodHandle = 	15
-const val CONSTANT_MethodType = 	16
-const val CONSTANT_InvokeDynamic = 	18
+enum class ConstantTag(val tag: Int) {
+    CONSTANT_Class(7),
+    CONSTANT_Fieldref(9),
+    CONSTANT_Methodref(10),
+    CONSTANT_InterfaceMethodref(11),
+    CONSTANT_String(8),
+    CONSTANT_Integer(3),
+    CONSTANT_Float(4),
+    CONSTANT_Long(5),
+    CONSTANT_Double(6),
+    CONSTANT_NameAndType(12),
+    CONSTANT_Utf8(1),
+    CONSTANT_MethodHandle(15),
+    CONSTANT_MethodType(16),
+    CONSTANT_InvokeDynamic(18);
+
+    companion object {
+        fun fromTag(tag: Int): ConstantTag? {
+            return values().find { it.tag == tag }
+        }
+    }
+}
 
 interface ConstantInfo
 
@@ -68,25 +76,25 @@ data class ConstantStringInfo(
 
 fun readConstantPool(dataInputStream: DataInputStream) : ConstantInfo {
     val tag = dataInputStream.readByte()
-    return when (tag.toInt()) {
-        CONSTANT_Class -> {
+    return when (ConstantTag.fromTag(tag.toInt())) {
+        ConstantTag.CONSTANT_Class -> {
             ConstantClassInfo(dataInputStream.readShort())
         }
-        CONSTANT_Methodref -> {
+        ConstantTag.CONSTANT_Methodref -> {
             ConstantMethodrefInfo(dataInputStream.readShort(), dataInputStream.readShort())
         }
-        CONSTANT_NameAndType -> {
+        ConstantTag.CONSTANT_NameAndType -> {
             ConstantNameAndTypeInfo(dataInputStream.readShort(), dataInputStream.readShort())
         }
-        CONSTANT_Utf8 -> {
+        ConstantTag.CONSTANT_Utf8 -> {
             val length = dataInputStream.readShort()
             val bytes = dataInputStream.readNBytes(length.toInt())
             ConstantUtf8Info(String(bytes, StandardCharsets.UTF_8))
         }
-        CONSTANT_Fieldref -> {
+        ConstantTag.CONSTANT_Fieldref -> {
             ConstantFieldrefInfo(dataInputStream.readShort(), dataInputStream.readShort())
         }
-        CONSTANT_String -> {
+        ConstantTag.CONSTANT_String -> {
             ConstantStringInfo(dataInputStream.readShort())
         }
         else -> {
@@ -115,7 +123,7 @@ enum class AccessFlag(val flag: Int) {
 data class ClassFile(
     val minorVersion: Int,
     val majorVersion: Int,
-    val constantPool: MutableMap<Short, ConstantInfo>,
+    val constantPool: ConstantPool,
     val accessFlags: Short,
     val thisClass: Short,
     val superClass: Short,
@@ -125,20 +133,44 @@ data class ClassFile(
     val attributes: List<AttributeInfo>
 ) {
     fun dump() {
-        println("this_class: #$thisClass // ${getName(thisClass)}")
-        println("super_class: #$superClass // ${getName(superClass)}")
+        println("this_class: #$thisClass // ${constantPool.getName(thisClass)}")
+        println("super_class: #$superClass // ${constantPool.getName(superClass)}")
         println("interfaces: ${interfaces.size}")
         println("Constant pool:")
-        constantPool.forEach { (i, info) ->
-            printConstantPool(i, info)
-        }
+        constantPool.forEach(
+            { (i, info) ->
+                printConstantPool(i, info)
+            },
+        )
         methods.forEach { action ->
             val accessFlag = AccessFlag.fromInt(action.accessFlags.toInt())
-            println("$accessFlag ${getName(action.nameIndex)}")
+            println("$accessFlag ${constantPool.getName(action.nameIndex)}")
             action.attributes.forEach {
-                println(getName(it.attributeNameIndex) + ":")
+                printAttribute(it)
+            }
+        }
+    }
+
+    private fun printAttribute(attributeInfo: AttributeInfo) {
+        val name = constantPool.getName(attributeInfo.attributeNameIndex)
+        println("  $name:")
+
+        when (attributeInfo) {
+            is CodeAttribute -> {
                 // attributeNameIndex が "Code" だったら、バイトコードが入っている。
-                // TODO このとき、info は Code_attribute
+                println("    stack=${attributeInfo.maxStack} local=${attributeInfo.maxLocals}")
+                attributeInfo.attributes.forEach {
+                    printAttribute(it)
+                }
+            }
+            is SourceFileAttribute -> {
+                println("    ${constantPool.getName(attributeInfo.sourceFileIndex)}")
+            }
+            is LineNumberTableAttribute -> {
+                println("    ${attributeInfo.lineNumberTable}")
+            }
+            else -> {
+                println("    (Unsupported attribute info)")
             }
         }
     }
@@ -152,7 +184,7 @@ data class ClassFile(
             if (ids.isNotEmpty()) {
                 p(
                     ids.joinToString(", ") { "#$it" },
-                    "// " + ids.map { getName(it) }.joinToString(", ")
+                    "// " + ids.joinToString(", ") { constantPool.getName(it) }
                 )
             } else {
                 println()
@@ -183,8 +215,17 @@ data class ClassFile(
             }
         }
     }
+}
 
-    private fun getName(i: Short): String {
+class ConstantPool {
+    private val constantPool = mutableMapOf<Short, ConstantInfo>()
+
+    operator fun set(toShort: Short, value: ConstantInfo) {
+        constantPool[toShort] = value
+    }
+
+
+    fun getName(i: Short): String {
         val p = constantPool[i] ?: return "null"
         return when (p) {
             is ConstantClassInfo -> {
@@ -201,7 +242,96 @@ data class ClassFile(
             }
         }
     }
+
+    fun forEach(action: (Map.Entry<Short, ConstantInfo>) -> Unit) {
+        constantPool.forEach(action)
+    }
 }
+
+//Code_attribute {
+//    u2 attribute_name_index;
+//    u4 attribute_length;
+//    u2 max_stack;
+//    u2 max_locals;
+//    u4 code_length;
+//    u1 code[code_length];
+//    u2 exception_table_length;
+//    {   u2 start_pc;
+//        u2 end_pc;
+//        u2 handler_pc;
+//        u2 catch_type;
+//    } exception_table[exception_table_length];
+//    u2 attributes_count;
+//    attribute_info attributes[attributes_count];
+//}
+data class ExceptionTableEntry(
+    val startPc: Short,
+    val endPc: Short,
+    val handlerPc: Short,
+    val catchType: Short
+)
+
+data class CodeAttribute(
+    override val attributeNameIndex: Short,
+    override val attributeLength: Int,
+    val maxStack: Short,
+    val maxLocals: Short,
+    val code: ByteArray,
+    val exceptionTable: List<ExceptionTableEntry>,
+    val attributes: List<AttributeInfo>
+) : AttributeInfo {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as CodeAttribute
+
+        if (attributeNameIndex != other.attributeNameIndex) return false
+        if (attributeLength != other.attributeLength) return false
+        if (maxStack != other.maxStack) return false
+        if (maxLocals != other.maxLocals) return false
+        if (!code.contentEquals(other.code)) return false
+        if (exceptionTable != other.exceptionTable) return false
+        if (attributes != other.attributes) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = attributeNameIndex.toInt()
+        result = 31 * result + attributeLength
+        result = 31 * result + maxStack
+        result = 31 * result + maxLocals
+        result = 31 * result + code.contentHashCode()
+        result = 31 * result + exceptionTable.hashCode()
+        result = 31 * result + attributes.hashCode()
+        return result
+    }
+}
+
+fun readCodeAttribute(constantPool: ConstantPool, dataInputStream: DataInputStream, attributeNameIndex: Short, attributeLength: Int): CodeAttribute {
+    val maxStack = dataInputStream.readShort()
+    val maxLocals = dataInputStream.readShort()
+    val codeLength = dataInputStream.readInt()
+    val code = dataInputStream.readNBytes(codeLength)
+
+    val exceptionTableLength = dataInputStream.readShort()
+    val exceptionTable = (0..<exceptionTableLength).map {
+        val startPc = dataInputStream.readShort()
+        val endPc = dataInputStream.readShort()
+        val handlerPc = dataInputStream.readShort()
+        val catchType = dataInputStream.readShort()
+        ExceptionTableEntry(startPc, endPc, handlerPc, catchType)
+    }
+
+    val attributesCount = dataInputStream.readShort()
+    val attributes = (0..<attributesCount).map {
+        readAttributeInfo(constantPool, dataInputStream) // Assumes you have a function to read generic attribute_info
+    }
+
+    return CodeAttribute(attributeNameIndex, attributeLength, maxStack, maxLocals, code, exceptionTable, attributes)
+}
+
 
 // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
 fun readClassFile(fileName: String): ClassFile {
@@ -224,7 +354,7 @@ fun readClassFile(fileName: String): ClassFile {
             // Read constant pool
             val constantPoolCount = dataInputStream.readUnsignedShort()
             println("Constant Pool Count: $constantPoolCount")
-            val constantPool = mutableMapOf<Short, ConstantInfo>()
+            val constantPool = ConstantPool()
             for (i in 1..<constantPoolCount) {
                 constantPool[i.toShort()] = readConstantPool(dataInputStream)
             }
@@ -240,18 +370,18 @@ fun readClassFile(fileName: String): ClassFile {
 
             val fieldsCount = dataInputStream.readShort()
             val fields = (0..<fieldsCount).map {
-                readFieldInfo(dataInputStream)
+                readFieldInfo(constantPool, dataInputStream)
             }
 
             val methodsCount = dataInputStream.readShort()
             val methods = (0..<methodsCount).map {
-                readMethodInfo(dataInputStream)
+                readMethodInfo(constantPool, dataInputStream)
             }
 
 
             val attributesCount = dataInputStream.readShort()
             val attributes = (0..<attributesCount).map {
-                readAttributeInfo(dataInputStream)
+                readAttributeInfo(constantPool, dataInputStream)
             }
 
             return ClassFile(
@@ -284,13 +414,13 @@ data class MethodInfo(
     val attributes: List<AttributeInfo>,
 )
 
-fun readMethodInfo(dataInputStream: DataInputStream): MethodInfo {
+fun readMethodInfo(constantPool: ConstantPool, dataInputStream: DataInputStream): MethodInfo {
     val accessFlags = dataInputStream.readShort()
     val nameIndex = dataInputStream.readShort()
     val descriptorIndex = dataInputStream.readShort()
     val attributesCount = dataInputStream.readShort()
     val attributes = (0..<attributesCount).map {
-        readAttributeInfo(dataInputStream)
+        readAttributeInfo(constantPool, dataInputStream)
     }
     return MethodInfo(accessFlags, nameIndex, descriptorIndex, attributesCount, attributes)
 }
@@ -300,38 +430,82 @@ fun readMethodInfo(dataInputStream: DataInputStream): MethodInfo {
 //    u4 attribute_length;
 //    u1 info[attribute_length];
 //}
-data class AttributeInfo(
-    val attributeNameIndex: Short,
-    val attributeLength: Int,
-    val info: ByteArray
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as AttributeInfo
-
-        if (attributeNameIndex != other.attributeNameIndex) return false
-        if (attributeLength != other.attributeLength) return false
-        if (!info.contentEquals(other.info)) return false
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = attributeNameIndex.toInt()
-        result = 31 * result + attributeLength
-        result = 31 * result + info.contentHashCode()
-        return result
-    }
+interface AttributeInfo {
+    val attributeNameIndex: Short
+    val attributeLength: Int
 }
 
-fun readAttributeInfo(dataInputStream: DataInputStream): AttributeInfo {
+fun readAttributeInfo(constantPool: ConstantPool, dataInputStream: DataInputStream): AttributeInfo {
     val attributeNameIndex = dataInputStream.readShort()
     val attributeLength = dataInputStream.readInt()
-    val info = dataInputStream.readNBytes(attributeLength)
-    return AttributeInfo(attributeNameIndex, attributeLength, info)
+    return when (val attributeName = constantPool.getName(attributeNameIndex)) {
+        "Code" -> {
+            readCodeAttribute(constantPool, dataInputStream, attributeNameIndex, attributeLength)
+        }
+        "LineNumberTable" -> {
+            readLineNumberTableAttribute(dataInputStream, attributeNameIndex, attributeLength)
+        }
+        "SourceFile" -> {
+            readSourceFileAttribute(dataInputStream, attributeNameIndex, attributeLength)
+        }
+        else -> {
+            TODO("Unknown attribute: $attributeName")
+        }
+    }
 }
+
+//LineNumberTable_attribute {
+//    u2 attribute_name_index;
+//    u4 attribute_length;
+//    u2 line_number_table_length;
+//    {   u2 start_pc;
+//        u2 line_number;
+//    } line_number_table[line_number_table_length];
+//}
+
+// Data class to represent an entry in the LineNumberTable
+data class LineNumberEntry(
+    val startPc: Short,
+    val lineNumber: Short
+)
+
+// Data class to represent the LineNumberTable attribute
+data class LineNumberTableAttribute(
+    override val attributeNameIndex: Short,
+    override val attributeLength: Int,
+    val lineNumberTable: List<LineNumberEntry>
+) : AttributeInfo
+
+// Function to read the LineNumberTable attribute from a DataInputStream
+fun readLineNumberTableAttribute(dataInputStream: DataInputStream, attributeNameIndex: Short, attributeLength: Int): LineNumberTableAttribute {
+    val lineNumberTableLength = dataInputStream.readShort()
+    val lineNumberTable = (0 until lineNumberTableLength).map {
+        val startPc = dataInputStream.readShort()
+        val lineNumber = dataInputStream.readShort()
+        LineNumberEntry(startPc, lineNumber)
+    }
+    return LineNumberTableAttribute(attributeNameIndex, attributeLength, lineNumberTable)
+}
+
+//SourceFile_attribute {
+//    u2 attribute_name_index;
+//    u4 attribute_length;
+//    u2 sourcefile_index;
+//}
+
+// Data class to represent the SourceFile attribute
+data class SourceFileAttribute(
+    override val attributeNameIndex: Short,
+    override val attributeLength: Int,
+    val sourceFileIndex: Short
+) : AttributeInfo
+
+// Function to read the SourceFile attribute from a DataInputStream
+fun readSourceFileAttribute(dataInputStream: DataInputStream, attributeNameIndex: Short, attributeLength: Int): SourceFileAttribute {
+    val sourceFileIndex = dataInputStream.readShort()
+    return SourceFileAttribute(attributeNameIndex, attributeLength, sourceFileIndex)
+}
+
 
 //field_info {
 //    u2             access_flags;
@@ -347,13 +521,13 @@ data class FieldInfo(
     val attributeCount: Short,
     val attributes: List<AttributeInfo>
 )
-fun readFieldInfo(dataInputStream: DataInputStream): FieldInfo {
+fun readFieldInfo(constantPool: ConstantPool, dataInputStream: DataInputStream): FieldInfo {
     val accessFlags = dataInputStream.readShort()
     val nameIndex = dataInputStream.readShort()
     val descriptorIndex = dataInputStream.readShort()
     val attributesCount = dataInputStream.readShort()
     val attributes = (0..<attributesCount).map {
-        readAttributeInfo(dataInputStream)
+        readAttributeInfo(constantPool, dataInputStream)
     }
     return FieldInfo(accessFlags, nameIndex, descriptorIndex, attributesCount, attributes)
 }
