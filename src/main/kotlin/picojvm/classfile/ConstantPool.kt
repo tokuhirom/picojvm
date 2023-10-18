@@ -120,10 +120,16 @@ class ConstantPool {
             is ConstantUtf8Info -> {
                 p.str
             }
+            is ConstantStringInfo -> {
+                '"' + getName(p.stringIndex) + '"'
+            }
             is ConstantNameAndTypeInfo -> {
                 getName(p.nameIndex) + ":" + getName(p.descriptorIndex)
             }
             is ConstantMethodrefInfo -> {
+                getName(p.classIndex) + ":" + getName(p.nameAndTypeIndex)
+            }
+            is ConstantFieldrefInfo -> {
                 getName(p.classIndex) + ":" + getName(p.nameAndTypeIndex)
             }
             else -> {
