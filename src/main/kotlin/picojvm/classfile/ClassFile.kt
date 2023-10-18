@@ -6,6 +6,10 @@ import picojvm.classfile.attribute.LineNumberTableAttribute
 import picojvm.classfile.attribute.SourceFileAttribute
 import picojvm.classfile.attribute.readAttributeInfo
 import picojvm.vm.ByteCode
+import picojvm.vm.ByteCodeReader
+import picojvm.vm.ByteOp
+import picojvm.vm.NoArgOp
+import picojvm.vm.ShortOp
 import java.io.DataInputStream
 import java.io.FileInputStream
 
@@ -47,30 +51,22 @@ data class ClassFile(
                 // attributeNameIndex が "Code" だったら、バイトコードが入っている。
                 println("    stack=${attributeInfo.maxStack} local=${attributeInfo.maxLocals}")
 
-                var pc = 0
-                fun readShort() : Short {
-                    val high = attributeInfo.code[pc++].toInt() shl 8 and 0xFF00
-                    val low = attributeInfo.code[pc++].toInt() and 0xFF
-                    return (high or low).toShort()
-                }
+                val reader = ByteCodeReader(attributeInfo)
 
-                while (pc < attributeInfo.code.size) {
-                    when (val op = ByteCode.fromOpcode(attributeInfo.code[pc++])) {
-                        ByteCode.ALOAD_0 -> {
-                            println("      aload_0")
+                while (reader.hasMoreElements()) {
+                    val op = reader.readOp()
+                    when (op) {
+                        is ShortOp -> {
+                            println("      ${op.byteCode.opcodeName} #${op.op1} // ${constantPool.getName(op.op1)}")
                         }
-                        ByteCode.INVOKESPECIAL -> {
-                            val o1 = readShort()
-                            println("      invokespecial #$o1 // ${constantPool.getName(o1)}")
+                        is ByteOp -> {
+                            println("      ${op.byteCode.opcodeName} #${op.op1} // ${constantPool.getName((op.op1.toInt() and 0xff).toShort())}")
                         }
-                        ByteCode.NOP -> {
-                            println("      nop")
-                        }
-                        ByteCode.RETURN -> {
-                            println("      return")
+                        is NoArgOp -> {
+                            println("      ${op.byteCode.opcodeName}")
                         }
                         else -> {
-                            TODO("Unsupported op: pc=$pc, $op, ${attributeInfo.code[pc-1].toInt() and 0xff}")
+                            TODO("Unsupported op: pc=${reader.pc}, $op")
                         }
                     }
                 }
