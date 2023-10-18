@@ -123,6 +123,9 @@ class ConstantPool {
             is ConstantNameAndTypeInfo -> {
                 getName(p.nameIndex) + ":" + getName(p.descriptorIndex)
             }
+            is ConstantMethodrefInfo -> {
+                getName(p.classIndex) + ":" + getName(p.nameAndTypeIndex)
+            }
             else -> {
                 p.toString()
             }

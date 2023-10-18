@@ -5,6 +5,7 @@ import picojvm.classfile.attribute.AttributeInfo
 import picojvm.classfile.attribute.LineNumberTableAttribute
 import picojvm.classfile.attribute.SourceFileAttribute
 import picojvm.classfile.attribute.readAttributeInfo
+import picojvm.vm.ByteCode
 import java.io.DataInputStream
 import java.io.FileInputStream
 
@@ -45,6 +46,35 @@ data class ClassFile(
             is CodeAttribute -> {
                 // attributeNameIndex が "Code" だったら、バイトコードが入っている。
                 println("    stack=${attributeInfo.maxStack} local=${attributeInfo.maxLocals}")
+
+                var pc = 0
+                fun readShort() : Short {
+                    val high = attributeInfo.code[pc++].toInt() shl 8 and 0xFF00
+                    val low = attributeInfo.code[pc++].toInt() and 0xFF
+                    return (high or low).toShort()
+                }
+
+                while (pc < attributeInfo.code.size) {
+                    when (val op = ByteCode.fromOpcode(attributeInfo.code[pc++])) {
+                        ByteCode.ALOAD_0 -> {
+                            println("      aload_0")
+                        }
+                        ByteCode.INVOKESPECIAL -> {
+                            val o1 = readShort()
+                            println("      invokespecial #$o1 // ${constantPool.getName(o1)}")
+                        }
+                        ByteCode.NOP -> {
+                            println("      nop")
+                        }
+                        ByteCode.RETURN -> {
+                            println("      return")
+                        }
+                        else -> {
+                            TODO("Unsupported op: pc=$pc, $op, ${attributeInfo.code[pc-1].toInt() and 0xff}")
+                        }
+                    }
+                }
+
                 attributeInfo.attributes.forEach {
                     printAttribute(it)
                 }
