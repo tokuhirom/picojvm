@@ -1,11 +1,10 @@
 package picojvm.classfile
 
-import picojvm.classfile.attribute.CodeAttribute
 import picojvm.classfile.attribute.AttributeInfo
+import picojvm.classfile.attribute.CodeAttribute
 import picojvm.classfile.attribute.LineNumberTableAttribute
 import picojvm.classfile.attribute.SourceFileAttribute
 import picojvm.classfile.attribute.readAttributeInfo
-import picojvm.vm.ByteCode
 import picojvm.vm.ByteCodeReader
 import picojvm.vm.ByteOp
 import picojvm.vm.NoArgOp
@@ -127,6 +126,14 @@ data class ClassFile(
             }
         }
     }
+
+    fun getMainMethod(): CodeAttribute {
+        return methods.first {
+            constantPool.getName(it.nameIndex) == "main"
+        }.attributes
+            .filterIsInstance<CodeAttribute>()
+            .first()
+    }
 }
 
 // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
@@ -140,16 +147,13 @@ fun readClassFile(fileName: String): ClassFile {
             if (magicNumber != 0xCAFEBABE.toInt()) {
                 throw IllegalArgumentException("Invalid class file")
             }
-            System.out.printf("Magic Number: %X\n", magicNumber)
 
             // Read version number
             val minorVersion = dataInputStream.readUnsignedShort()
             val majorVersion = dataInputStream.readUnsignedShort()
-            println("Minor Version: $minorVersion, Major Version: $majorVersion")
 
             // Read constant pool
             val constantPoolCount = dataInputStream.readUnsignedShort()
-            println("Constant Pool Count: $constantPoolCount")
             val constantPool = ConstantPool()
             for (i in 1..<constantPoolCount) {
                 constantPool[i.toShort()] = readConstantPool(dataInputStream)

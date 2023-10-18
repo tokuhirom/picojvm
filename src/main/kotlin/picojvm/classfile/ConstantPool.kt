@@ -111,6 +111,10 @@ class ConstantPool {
         constantPool[toShort] = value
     }
 
+    fun get(i: Short): ConstantInfo {
+        return constantPool[i] ?: throw NoSuchElementException()
+    }
+
     fun getName(i: Short): String {
         val p = constantPool[i] ?: return "null"
         return when (p) {
@@ -130,7 +134,7 @@ class ConstantPool {
                 getName(p.classIndex) + ":" + getName(p.nameAndTypeIndex)
             }
             is ConstantFieldrefInfo -> {
-                getName(p.classIndex) + ":" + getName(p.nameAndTypeIndex)
+                getName(p.classIndex) + "." + getName(p.nameAndTypeIndex)
             }
             else -> {
                 p.toString()
